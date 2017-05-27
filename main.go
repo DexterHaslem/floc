@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 const FilterNone = "*"
@@ -86,9 +87,17 @@ func lines(fn string) (int, error) {
 		return -1, err
 	}
 
+	if notText(b) {
+		return 0, nil
+	}
+
 	str := string(b)
 	chunks := strings.Split(str, "\n") // TODO: line ending modes :-(
 	return len(chunks), nil
+}
+
+func notText(bytes []byte) bool {
+	return !utf8.Valid(bytes)
 }
 
 func walk(root string, parent *dirinfo) (*dirinfo, error) {
