@@ -31,9 +31,8 @@ func parseExts() {
 
 	chunks := strings.Split(f, ",")
 	for _, c := range chunks {
-		// filepath.Ext returns dot so add it here to simplify
-		// always strip then add ourself, this way its consistent
-		validExts = append(validExts, "."+strings.Trim(c, "."))
+		// if user adds dot, clean it so its consistent below
+		validExts = append(validExts, strings.Trim(c, "."))
 	}
 }
 
@@ -95,7 +94,9 @@ func main() {
 			return nil
 		}
 
-		ext := filepath.Ext(i.Name())
+		// strip dot for printing
+		ext := strings.Trim(filepath.Ext(i.Name()), ".")
+
 		if passes(ext) {
 			d := filepath.Dir(p)
 			// chop off root so its relative to our start
