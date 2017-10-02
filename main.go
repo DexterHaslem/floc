@@ -37,13 +37,11 @@ func parseExts() {
 	}
 }
 
-func passes(fi os.FileInfo) bool {
+func passes(ext string) bool {
 	if *filter == FilterNone {
 		return true
 	}
 
-	// ext returns the dot so massasge things a bit
-	ext := filepath.Ext(fi.Name())
 	for _, ve := range validExts {
 		if ve == ext {
 			return true
@@ -80,14 +78,16 @@ func main() {
 	parseExts()
 	fmt.Printf("floc: parsing dir='%s' for file filter='%s'\n", *dir, *filter)
 
-	//wd, err := walk(*dir, nil)
 	type ret struct {
-		ByDir map[string]int `json:"byDir"`
-		Total int            `json:"total"`
+		// ext:[path: loc]
+		ByDir map[string]map[string]int `json:"byDir"`
+		// ext: total
+		Total map[string]int `json:"total"`
 	}
 	r := &ret{
-		ByDir: map[string]int{},
+		ByDir: map[string]map[string]int{},
 	}
+
 	filepath.Walk(*dir, func(p string, i os.FileInfo, err error) error {
 		if i.IsDir() {
 			// this causes empty dirs to be reported
@@ -95,7 +95,8 @@ func main() {
 			return nil
 		}
 
-		if passes(i) {
+		ext := filepath.Ext(i.Name())
+		if passes(ext) {
 			d := filepath.Dir(p)
 			// chop off root so its relative to our start
 			d = strings.Replace(d, *dir, "", -1)
@@ -103,7 +104,10 @@ func main() {
 			d = filepath.Clean(d)
 			lc, err := lines(p)
 			if err == nil {
-				r.ByDir[d] += lc
+				if r.ByDir[d] == nil {
+					r.ByDir[d] = map[string]int{}
+				}
+				r.ByDir[d][ext] += lc
 			} else {
 				fmt.Fprintf(os.Stderr, "failed to read file %s: %s", i.Name(), err)
 			}
@@ -111,11 +115,12 @@ func main() {
 		return nil
 	})
 
-	t := 0
-	for _, v := range r.ByDir {
-		t += v
+	r.Total = map[string]int{}
+	for _, m := range r.ByDir {
+		for e, v := range m {
+			r.Total[e] += v
+		}
 	}
-	r.Total = t
 
 	j, err := json.MarshalIndent(r, "", "  ")
 	if err == nil {
