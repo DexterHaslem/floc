@@ -1,49 +1,26 @@
-// floc is a quick and dirty to list *PHYSICAL*
-// lines of code in each directory
+// floc is a tool to list *PHYSICAL* lines of code in each directory
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 )
 
 const FilterNone = "*"
 
-var dir = flag.String("dir", ".", "Starting directory")
-var filter = flag.String("filter", FilterNone, "extension filter, a comma separated list of extensions to include, or * for all")
-var validExts []string
+var (
+	dir = flag.String("dir", ".",
+		"Starting directory")
 
-type dirinfo struct {
-	name    string
-	lines   int64
-	parent  *dirinfo
-	subdirs []*dirinfo
-}
-
-func (d *dirinfo) sublines() int64 {
-	total := int64(0)
-	for _, sd := range d.subdirs {
-		total += sd.lines + sd.sublines()
-	}
-	return total
-}
-
-func (d *dirinfo) pretty(tabs int) {
-	for i := 0; i < tabs; i++ {
-		// doing \t was huge
-		fmt.Print("  ")
-	}
-
-	fmt.Printf("%s: contains=%d (%d in dir)\n", d.name, d.sublines()+d.lines, d.lines)
-	for _, sd := range d.subdirs {
-		sd.pretty(tabs + 1)
-	}
-}
+	filter = flag.String("filter", FilterNone,
+		"extension filter, a comma separated list of extensions to include (with no dot), or * for all")
+	validExts []string
+)
 
 func parseExts() {
 	validExts = []string{}
@@ -55,17 +32,17 @@ func parseExts() {
 	chunks := strings.Split(f, ",")
 	for _, c := range chunks {
 		// filepath.Ext returns dot so add it here to simplify
-		validExts = append(validExts, "."+c)
+		// always strip then add ourself, this way its consistent
+		validExts = append(validExts, "."+strings.Trim(c, "."))
 	}
 }
 
 func passes(fi os.FileInfo) bool {
-	// TODO: try to skip binary
 	if *filter == FilterNone {
 		return true
 	}
-	// ext returns the dot so massasge things a bit
 
+	// ext returns the dot so massasge things a bit
 	ext := filepath.Ext(fi.Name())
 	for _, ve := range validExts {
 		if ve == ext {
@@ -82,62 +59,66 @@ func lines(fn string) (int, error) {
 	}
 	defer f.Close()
 
-	b, err := ioutil.ReadAll(f)
-	if err != nil {
-		return -1, err
+	s := bufio.NewScanner(f)
+	var c int
+	for c = 0; s.Scan(); c++ {
+		// dont bother, use file filters
+		//if notText(l)
+		// whee
 	}
 
-	if notText(b) {
-		return 0, nil
-	}
-
-	str := string(b)
-	chunks := strings.Split(str, "\n") // TODO: line ending modes :-(
-	return len(chunks), nil
-}
-
-func notText(bytes []byte) bool {
-	return !utf8.Valid(bytes)
-}
-
-func walk(root string, parent *dirinfo) (*dirinfo, error) {
-	fs, err := ioutil.ReadDir(root)
-	if err != nil {
-		return nil, err
-	}
-
-	ret := dirinfo{
-		name:    filepath.Base(root),
-		subdirs: []*dirinfo{},
-		parent:  parent,
-	}
-
-	for _, fi := range fs {
-		fn := filepath.Join(root, fi.Name())
-		if fi.IsDir() {
-			subdir, err := walk(fn, &ret)
-			if err == nil {
-				ret.subdirs = append(ret.subdirs, subdir)
-			}
-		} else if passes(fi) {
-			ln, err := lines(fn)
-			if err == nil {
-				ret.lines += int64(ln)
-			}
-		}
-	}
-	return &ret, nil
+	return c, nil
 }
 
 func main() {
+	if len(os.Args) < 3 {
+		flag.Usage()
+		os.Exit(1)
+	}
+
 	flag.Parse()
 	parseExts()
-	fmt.Printf("floc: dir='%s' filter='%s'\n", *dir, *filter)
-	wd, err := walk(*dir, nil)
+	fmt.Printf("floc: parsing dir='%s' for file filter='%s'\n", *dir, *filter)
+
+	//wd, err := walk(*dir, nil)
+	type ret struct {
+		ByDir map[string]int `json:"byDir"`
+		Total int            `json:"total"`
+	}
+	r := &ret{
+		ByDir: map[string]int{},
+	}
+	filepath.Walk(*dir, func(p string, i os.FileInfo, err error) error {
+		if i.IsDir() {
+			// this causes empty dirs to be reported
+			//lines[p] = 0
+			return nil
+		}
+
+		if passes(i) {
+			d := filepath.Dir(p)
+			// chop off root so its relative to our start
+			d = strings.Replace(d, *dir, "", -1)
+			d = strings.Trim(d, "\\/")
+			d = filepath.Clean(d)
+			lc, err := lines(p)
+			if err == nil {
+				r.ByDir[d] += lc
+			} else {
+				fmt.Fprintf(os.Stderr, "failed to read file %s: %s", i.Name(), err)
+			}
+		}
+		return nil
+	})
+
+	t := 0
+	for _, v := range r.ByDir {
+		t += v
+	}
+	r.Total = t
+
+	j, err := json.MarshalIndent(r, "", "  ")
 	if err == nil {
-		wd.pretty(0)
-	} else {
-		fmt.Fprintf(os.Stderr, "Error: %s", err)
-		os.Exit(1)
+		fmt.Printf("%s\n", j)
 	}
 }
