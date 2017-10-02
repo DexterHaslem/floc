@@ -19,7 +19,12 @@ var (
 
 	filter = flag.String("filter", FilterNone,
 		"extension filter, a comma separated list of extensions to include (with no dot), or * for all")
+
+	ignore = flag.String("ignore", "",
+		"comma separated file patterns to ignore. eg, 'node_modules'")
+
 	validExts []string
+	ignored   []string
 )
 
 func parseExts() {
@@ -36,11 +41,31 @@ func parseExts() {
 	}
 }
 
-func passes(ext string) bool {
+func parseIgnored() {
+	ignored = []string{}
+	i := *ignore
+	if i == "" {
+		return
+	}
+	ignored = strings.Split(i, ",")
+}
+
+func isIgnored(p string) bool {
+	// massage the ignore term a bit to match on anythign either side
+	// this requires full pattern to match, m, err := filepath.Match(i, p)
+	// jsut do a dumb string compare
+	for _, i := range ignored {
+		if strings.Contains(p, i) {
+			return true
+		}
+	}
+	return false
+}
+
+func extPass(ext string) bool {
 	if *filter == FilterNone {
 		return true
 	}
-
 	for _, ve := range validExts {
 		if ve == ext {
 			return true
@@ -75,6 +100,8 @@ func main() {
 
 	flag.Parse()
 	parseExts()
+	parseIgnored()
+
 	fmt.Printf("floc: parsing dir='%s' for file filter='%s'\n", *dir, *filter)
 
 	type ret struct {
@@ -83,6 +110,7 @@ func main() {
 		// ext: total
 		Total map[string]int `json:"total"`
 	}
+
 	r := &ret{
 		ByDir: map[string]map[string]int{},
 	}
@@ -91,13 +119,22 @@ func main() {
 		if i.IsDir() {
 			// this causes empty dirs to be reported
 			//lines[p] = 0
+			if isIgnored(p) {
+				fmt.Printf("ignored entire directory %s\n", p)
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		if isIgnored(p) {
+			fmt.Printf("ignored %s\n", p)
 			return nil
 		}
 
 		// strip dot for printing
 		ext := strings.Trim(filepath.Ext(i.Name()), ".")
 
-		if passes(ext) {
+		if extPass(ext) {
 			d := filepath.Dir(p)
 			// chop off root so its relative to our start
 			d = strings.Replace(d, *dir, "", -1)
