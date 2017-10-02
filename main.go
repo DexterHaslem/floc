@@ -102,7 +102,7 @@ func main() {
 	parseExts()
 	parseIgnored()
 
-	fmt.Printf("floc: parsing dir='%s' for file filter='%s'\n", *dir, *filter)
+	//fmt.Printf("floc: parsing dir='%s' for file filter='%s'\n", *dir, *filter)
 
 	type ret struct {
 		// ext:[path: loc]
@@ -120,7 +120,7 @@ func main() {
 			// this causes empty dirs to be reported
 			//lines[p] = 0
 			if isIgnored(p) {
-				fmt.Printf("ignored entire directory %s\n", p)
+				//fmt.Printf("ignored entire directory %s\n", p)
 				return filepath.SkipDir
 			}
 			return nil
@@ -163,5 +163,7 @@ func main() {
 	j, err := json.MarshalIndent(r, "", "  ")
 	if err == nil {
 		fmt.Printf("%s\n", j)
+	} else {
+		fmt.Fprintf(os.Stderr, "error running stats: %s", err)
 	}
 }
